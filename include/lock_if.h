@@ -45,6 +45,7 @@ typedef pthread_mutex_t ptlock_t;
 #  define LOCK(lock)					pthread_mutex_lock((pthread_mutex_t *) lock)
 #  define TRYLOCK(lock)					pthread_mutex_trylock((pthread_mutex_t *) lock)
 #  define UNLOCK(lock)					pthread_mutex_unlock((pthread_mutex_t *) lock)
+
 #elif defined(SPIN)		/* pthread spinlock */
 typedef pthread_spinlock_t ptlock_t;
 #  define LOCK_LOCAL_DATA                                
@@ -53,6 +54,7 @@ typedef pthread_spinlock_t ptlock_t;
 #  define DESTROY_LOCK(lock)			        pthread_spin_destroy((pthread_spinlock_t *) lock)
 #  define LOCK(lock)					pthread_spin_lock((pthread_spinlock_t *) lock)
 #  define UNLOCK(lock)					pthread_spin_unlock((pthread_spinlock_t *) lock)
+
 #elif defined(TAS)			/* TAS */
 typedef volatile size_t ptlock_t;
 #  define LOCK_LOCAL_DATA                                
@@ -94,6 +96,7 @@ tas_unlock(ptlock_t* l)
   COMPILER_NO_REORDER(*l = TAS_FREE;);
   return 0;
 }
+
 
 #elif defined(TTAS)			/* TTAS */
 typedef volatile size_t ptlock_t;
@@ -223,6 +226,7 @@ ticket_unlock(volatile ptlock_t* l)
   COMPILER_NO_REORDER(l->curr++;);
   return 0;
 }
+
 #elif defined(MCS)		/* MCS lock */
 
 #  include "mcs.h"
