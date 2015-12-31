@@ -238,6 +238,7 @@ typedef mcs_lock_t ptlock_t;
 #  define DESTROY_LOCK(lock)			        mcs_lock_destroy((mcs_lock_t*) lock)
 #  define LOCK(lock)					mcs_lock_lock((mcs_lock_t*) lock)
 #  define UNLOCK(lock)					mcs_lock_unlock((mcs_lock_t*) lock)     
+#  define TRYLOCK(lock)					mcs_lock_trylock((mcs_lock_t*) lock)
 #endif
 
 #endif	/* _LOCK_IF_H_ */

@@ -36,7 +36,7 @@ sstm_stop()
 	for(i = 0 ; i < NB_MANAGER ; i++)
 	{
 		if(DESTROY_LOCK(&sstm_meta_global.managers.tree[i]) == EBUSY)
-			PRINTD("SSTM stopped while mutex locked, maybe a thread is still working. Undefined behavior.")
+			PRINTD("SSTM stopped while mutex locked, maybe a thread is still working. Undefined behavior.");
 	}
 }
 
@@ -70,15 +70,15 @@ sstm_thread_stop()
 sstm_tx_load(volatile uintptr_t* addr)
 {
 	lockMemoryAt(addr);
-	return sstm_meta_global.managers.tree[addr&MASK].last_modification;
+	return sstm_meta_global.managers.tree[(size_t)addr&MASK].last_modification;
 }
 
 inline void lockMemoryAt(volatile uintptr_t* addr)
 {
-	size_t cell = addr & MASK;
+	size_t cell = (size_t)addr & MASK;
 	struct memsection_manager * myManager = &sstm_meta_global.managers.tree[cell];
 	
-	int lock = TRYLOCK(myManager->section_lock);
+	int lock = TRYLOCK(&myManager->section_lock);
 	if(lock == EBUSY)
 	{
 		int i;
@@ -90,7 +90,7 @@ inline void lockMemoryAt(volatile uintptr_t* addr)
 				sstm_meta_global.managers.tree[i].waiting = addr;
 			}
 		}
-		while(TRYLOCK(myManager->section_lock))
+		while(TRYLOCK(&myManager->section_lock))
 		{
 			if(dependsOnMe(myManager))
 			{
@@ -126,8 +126,8 @@ inline void lockMemoryAt(volatile uintptr_t* addr)
  */
 inline int ownAt(volatile uintptr_t *addr)
 {
-	size_t cell = addr & MASK;
-
+	size_t cell = (size_t) addr & MASK;
+	return !sstm_meta.myLocks[cell];
 }
 
 /*
@@ -136,7 +136,7 @@ inline int ownAt(volatile uintptr_t *addr)
 */
 int dependsOnMe(struct memsection_manager* manager)
 {
-	return manager->waiting && &sstm_meta_global.managers.tree[manager->waiting & MASK];
+	return manager->waiting && &sstm_meta_global.managers.tree[(size_t)manager->waiting & MASK];
 }
 
 /* transactionally writes val in addr
@@ -148,7 +148,7 @@ sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
 {
 	lockMemoryAt(addr);
 	/* Update locally, i.e. not at the addr, but in the manager*/
-	sstm_meta_global.managers.tree[addr&MASK].last_modification = val;
+	sstm_meta_global.managers.tree[(size_t)addr & MASK].last_modification = val;
 }
 
 /* cleaning up in case of an abort 
@@ -169,7 +169,7 @@ sstm_tx_cleanup()
 			// forget
 			sstm_meta.myLocks[i] = 0;
 			// unlock
-			UNLOCK(sstm_meta_global.managers.tree[i].section_lock);
+			UNLOCK(&sstm_meta_global.managers.tree[i].section_lock);
 		}
 	}
 	sstm_meta.n_aborts++;

@@ -4,6 +4,8 @@ else
 CFLAGS = -O2
 endif
 
+CFLAGS := -Werror
+
 INCL = ./include
 LDFLAGS = -lpthread -L. -lsstm
 SRCPATH = ./src

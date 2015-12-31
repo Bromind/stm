@@ -21,8 +21,8 @@ extern "C" {
 
 
 #include <math.h>
-#define POW2(n) 1<<(n)
-#define MASK ((volatile uintptr_t*)NB_MANAGER - 1)
+#define POW2(n) (1<<(n))
+#define MASK (size_t) (NB_MANAGER - 1)
 #define NB_MANAGER POW2(sizeof(void*)-GRANULARITY)
 #define GRANULARITY 8 /* Each lock will lock 2^GRANULARITY memory cells */
 
@@ -31,6 +31,19 @@ extern "C" {
 	/* **************************************************************************************************** */
 	/* structures */
 	/* **************************************************************************************************** */
+
+	struct memsection_manager
+	{
+		size_t owner;
+		ptlock_t section_lock;
+		uintptr_t last_modification;
+		volatile void* waiting;
+	};
+	
+	struct managerTree
+	{
+		struct memsection_manager tree[NB_MANAGER];
+	};
 
 	typedef struct sstm_metadata
 	{
@@ -54,19 +67,6 @@ extern "C" {
 
 	extern __thread sstm_metadata_t sstm_meta;
 	extern sstm_metadata_global_t sstm_meta_global;
-
-	struct memsection_manager
-	{
-		size_t owner;
-		ptlock_t section_lock;
-		uintptr_t last_modification;
-		void* waiting;
-	}
-	
-	struct managerTree
-	{
-		struct memsection_manager tree[NB_MANAGER];
-	}
 
 			/* **************************************************************************************************** */
 			/* TM start/stop macros macros */
