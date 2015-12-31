@@ -19,6 +19,15 @@ extern "C" {
 #define MCS
 #include "lock_if.h"
 
+
+#include <math.h>
+#define POW2(n) 1<<(n)
+#define MASK ((volatile uintptr_t*)NB_MANAGER - 1)
+#define NB_MANAGER POW2(sizeof(void*)-GRANULARITY)
+#define GRANULARITY 8 /* Each lock will lock 2^GRANULARITY memory cells */
+
+
+
 	/* **************************************************************************************************** */
 	/* structures */
 	/* **************************************************************************************************** */
@@ -27,13 +36,17 @@ extern "C" {
 	{
 		sigjmp_buf env;		/* Environment for setjmp/longjmp */
 		size_t id;
+		size_t timestamp;
 		size_t n_commits;
 		size_t n_aborts;
+		char myLocks[NB_MANAGER];
 	} sstm_metadata_t;
 
 	typedef struct sstm_metadata_global
 	{
 		ptlock_t glock;
+		struct managerTree managers;
+		size_t timestamp;
 		size_t n_commits;
 		size_t n_aborts;
 	} sstm_metadata_global_t;
@@ -42,10 +55,18 @@ extern "C" {
 	extern __thread sstm_metadata_t sstm_meta;
 	extern sstm_metadata_global_t sstm_meta_global;
 
-	struct stm_snapshot {
-		int timestamp;
-		void * values
-
+	struct memsection_manager
+	{
+		size_t owner;
+		ptlock_t section_lock;
+		uintptr_t last_modification;
+		void* waiting;
+	}
+	
+	struct managerTree
+	{
+		struct memsection_manager tree[NB_MANAGER];
+	}
 
 			/* **************************************************************************************************** */
 			/* TM start/stop macros macros */
@@ -80,7 +101,6 @@ extern "C" {
 				sstm_tx_cleanup();				\
 				PRINTD("|| restarting due to %d\n", reason);	\
 			}							\
-			LOCK(&sstm_meta_global.glock);			\
 		}
 
 #define TX_COMMIT()				\
@@ -108,7 +128,7 @@ extern "C" {
 			/* externs */
 			/* **************************************************************************************************** */
 
-			extern void sstm_start();
+		extern void sstm_start();
 		/* terminates the TM runtime
 		   (e.g., deallocates the locks that the system uses ) 
 		 */
@@ -166,6 +186,7 @@ extern "C" {
 #define PRINTD(args...) 
 #endif
 
+#define EDEPENDS 1
 
 #ifdef	__cplusplus
 	}
