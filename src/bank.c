@@ -471,4 +471,6 @@ main(int argc, char **argv)
 	/* Delete bank and accounts */
 	free(bank->accounts);
 	free(bank);
+
+	return 0;
 }

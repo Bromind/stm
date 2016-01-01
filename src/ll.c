@@ -468,4 +468,5 @@ main(int argc, char **argv)
 	TM_STOP();
 
 	free(list);
+	return 0;
 }

@@ -1,4 +1,7 @@
 #include "sstm_alloc.h"
+#include <stdio.h>
+#include <unistd.h>
+#include <sched.h>
 
 __thread sstm_alloc_t sstm_allocator = { .n_allocs = 0 };
 __thread sstm_alloc_t sstm_freeing = { .n_allocs = 0 };

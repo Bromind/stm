@@ -1,4 +1,5 @@
 #include "sstm.h"
+#include <sched.h>
 
 LOCK_LOCAL_DATA;
 __thread sstm_metadata_t sstm_meta;	 /* per-thread metadata */
@@ -18,7 +19,7 @@ int dependsOnMe(struct memsection_manager* manager);
 sstm_start()
 {
 	INIT_LOCK(&sstm_meta_global.glock);
-	//sstm_meta.timestamp = __atomic_fetch_add(&sstm_meta_global.timestamp, 1, __ATOMIC_SEQ_CST);
+	sstm_meta_global.timestamp=1;
 	int i;
 	for(i = 0 ; i < NB_MANAGER ; i++)
 	{
@@ -36,7 +37,7 @@ sstm_stop()
 	for(i = 0 ; i < NB_MANAGER ; i++)
 	{
 		if(DESTROY_LOCK(&sstm_meta_global.managers.tree[i]) == EBUSY)
-			PRINTD("SSTM stopped while mutex locked, maybe a thread is still working. Undefined behavior.");
+			PRINTD("SSTM stopped while mutex locked, maybe a thread is still working. Undefined behavior.\n");
 	}
 }
 
@@ -47,6 +48,12 @@ sstm_stop()
 	void
 sstm_thread_start()
 {
+	sstm_meta.id = __atomic_fetch_add(&sstm_meta_global.timestamp, 1, __ATOMIC_SEQ_CST);
+	int i;
+	for(i = 0 ; i < NB_MANAGER ; i++)
+	{
+		sstm_meta.myLocks[i] = 0;
+	}
 }
 
 /* terminates thread local data
@@ -69,6 +76,7 @@ sstm_thread_stop()
 	inline uintptr_t
 sstm_tx_load(volatile uintptr_t* addr)
 {
+	PRINTD("|| Loading addr %p\n", addr);
 	lockMemoryAt(addr);
 	return sstm_meta_global.managers.tree[(size_t)addr&MASK].last_modification;
 }
@@ -77,9 +85,13 @@ inline void lockMemoryAt(volatile uintptr_t* addr)
 {
 	size_t cell = (size_t)addr & MASK;
 	struct memsection_manager * myManager = &sstm_meta_global.managers.tree[cell];
-	
+	if(myManager->owner == sstm_meta.id)
+	{
+		/* if already got the lock*/
+		return;
+	}
 	int lock = TRYLOCK(&myManager->section_lock);
-	if(lock == EBUSY)
+	if(lock)
 	{
 		int i;
 		for(i = 0 ; i < NB_MANAGER ; i ++)
@@ -92,9 +104,13 @@ inline void lockMemoryAt(volatile uintptr_t* addr)
 		}
 		while(TRYLOCK(&myManager->section_lock))
 		{
+			PRINTD("|| check waiting dependencies for cell %i\n", cell);
 			if(dependsOnMe(myManager))
 			{
 				TX_ABORT(EDEPENDS);	
+			} else {
+				PRINTD("|| doesn't depend on me, but locked, will try in a while\n");
+				sched_yield();
 			}
 		}
 		for(i = 0 ; i < NB_MANAGER ; i ++)
@@ -112,6 +128,7 @@ inline void lockMemoryAt(volatile uintptr_t* addr)
 */
 
 	myManager->last_modification = *addr;
+	myManager->accessedAddress = addr;
 
 /* 
    Finally register our new lock and say it to the world 
@@ -131,12 +148,25 @@ inline int ownAt(volatile uintptr_t *addr)
 }
 
 /*
- * Returns non-zero if the owner of the given manager holds on one of the 
- * mutex we have locked.
+ * Returns true if the owner of the given manager holds on one of the 
+ * mutex we have locked, false o/w
 */
 int dependsOnMe(struct memsection_manager* manager)
 {
-	return manager->waiting && &sstm_meta_global.managers.tree[(size_t)manager->waiting & MASK];
+	if(manager->waiting != 0)
+	{
+		PRINTD("|| Manager waiting on cell %i", (size_t)manager->waiting & MASK);
+
+		if(sstm_meta.myLocks[(size_t)manager->waiting&MASK] != 0)
+		{
+			fprintf(stdout, " which we have locked\n");
+		} else {
+			fprintf(stdout, " which we haven't locked\n");
+		}
+	} else {
+		PRINTD("|| Depends on nothing\n");
+	}
+	return (manager->waiting!=0) && (sstm_meta.myLocks[(size_t)manager->waiting&MASK]!=0 || dependsOnMe(&sstm_meta_global.managers.tree[(size_t)manager->waiting & MASK]));
 }
 
 /* transactionally writes val in addr
@@ -182,7 +212,18 @@ sstm_tx_cleanup()
 	void
 sstm_tx_commit()
 {
-	UNLOCK(&sstm_meta_global.glock);
+	PRINTD("|| Start commit\n");
+	/* Clean global stuff : update global values, clean owner, unlock mutex, etc...*/
+	int i;
+	for(i = 0 ; i < NB_MANAGER ; i ++)
+	{
+		if(sstm_meta.myLocks[i] != 0)
+		{
+			sstm_meta_global.managers.tree[i].owner = 0;
+			*sstm_meta_global.managers.tree[i].accessedAddress = sstm_meta_global.managers.tree[i].last_modification;
+			UNLOCK(&sstm_meta_global.managers.tree[i].section_lock);
+		}
+	}
 	sstm_alloc_on_commit();
 	sstm_meta.n_commits++;		
 }
@@ -201,3 +242,5 @@ sstm_print_stats(double dur_s)
 			sstm_meta_global.n_aborts,
 			sstm_meta_global.n_aborts / dur_s);
 }
+
+#define PRINTD(args...) print_id(sstm_meta.id, args);

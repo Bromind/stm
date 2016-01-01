@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-#define DEBUG 0
+#define DEBUG 1
 
 	/* Choose here which lock to use */
 #define MCS
@@ -23,8 +23,8 @@ extern "C" {
 #include <math.h>
 #define POW2(n) (1<<(n))
 #define MASK (size_t) (NB_MANAGER - 1)
-#define NB_MANAGER POW2(sizeof(void*)-GRANULARITY)
-#define GRANULARITY 8 /* Each lock will lock 2^GRANULARITY memory cells */
+#define NB_MANAGER POW2(8*sizeof(void*)-GRANULARITY)
+#define GRANULARITY 8*7 /* Each lock will lock 2^GRANULARITY memory cells */
 
 
 
@@ -38,6 +38,7 @@ extern "C" {
 		ptlock_t section_lock;
 		uintptr_t last_modification;
 		volatile void* waiting;
+		volatile uintptr_t* accessedAddress;
 	};
 	
 	struct managerTree
@@ -49,7 +50,6 @@ extern "C" {
 	{
 		sigjmp_buf env;		/* Environment for setjmp/longjmp */
 		size_t id;
-		size_t timestamp;
 		size_t n_commits;
 		size_t n_aborts;
 		char myLocks[NB_MANAGER];
@@ -97,13 +97,13 @@ extern "C" {
 			short int reason;					\
 			if ((reason = sigsetjmp(sstm_meta.env, 0)) != 0)	\
 			{							\
-				UNLOCK(&sstm_meta_global.glock);		\
 				sstm_tx_cleanup();				\
 				PRINTD("|| restarting due to %d\n", reason);	\
 			}							\
 		}
 
 #define TX_COMMIT()				\
+			PRINTD("|| starting commit\n")			\
 			sstm_tx_commit();				\
 			PRINTD("|| commited tx (%zu)\n", sstm_meta.n_commits);     
 
@@ -115,7 +115,9 @@ extern "C" {
 			sstm_tx_load((volatile uintptr_t*) addr)
 
 #define TX_STORE(addr, val)			\
-			sstm_tx_store((volatile uintptr_t*) addr, (uintptr_t) val)
+			PRINTD("|| storing %i at %p\n", val, addr);	\
+			sstm_tx_store((volatile uintptr_t*) addr, (uintptr_t) val); \
+			PRINTD("|| finished to store\n")
 
 #define TX_MALLOC(size)				\
 			sstm_tx_alloc(size)
