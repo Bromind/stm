@@ -18,8 +18,8 @@ int main(void)
 	struct args args1, args2;
 	args1.data1 = a;
 	args1.data2 = b;
-	args2.data1 = b;
-	args2.data2 = a;
+	args2.data1 = a;
+	args2.data2 = b;
 	pthread_t thread1, thread2;
 	pthread_attr_t attr;
 	*a = 5;
@@ -29,25 +29,29 @@ int main(void)
 	//pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 
+	printf("a : %i ; b : %i\n", *a, *b);
 	TM_START();
 	pthread_create(&thread2, &attr, (void*(*)(void*))thread_fun, &args2);
 	pthread_create(&thread1, &attr, (void*(*)(void*))thread_fun, &args1);
 	pthread_join(thread1, &status);
 	pthread_join(thread2, &status);
 	TM_STOP();
+	printf("a : %i ; b : %i\n", *a, *b);
 	return 0;
 }
 
 void* thread_fun(struct args* cell)
 {
-	int b;
+	int a,b;
 	TM_THREAD_START();
 	TX_START();
-	b = TX_LOAD(cell->data1);
+	a = TX_LOAD(cell->data1);
+	b = TX_LOAD(cell->data2);
 	sched_yield();
-	TX_STORE(cell->data2, b);
+	TX_STORE(cell->data2, a);
+	TX_STORE(cell->data1, b);
 	TX_COMMIT();
 	TM_THREAD_STOP();
-	printf("%i\n", *cell->data2);
+	printf("a : %i ; b : %i\n", *cell->data1, *cell->data2);
 	return NULL;
 }

@@ -49,11 +49,7 @@ sstm_stop()
 sstm_thread_start()
 {
 	sstm_meta.id = __atomic_fetch_add(&sstm_meta_global.timestamp, 1, __ATOMIC_SEQ_CST);
-	int i;
-	for(i = 0 ; i < NB_MANAGER ; i++)
-	{
-		sstm_meta.myLocks[i] = 0;
-	}
+	INIT_ARRAY(&sstm_meta.myLocks);
 }
 
 /* terminates thread local data
@@ -94,13 +90,11 @@ inline void lockMemoryAt(volatile uintptr_t* addr)
 	if(lock)
 	{
 		int i;
-		for(i = 0 ; i < NB_MANAGER ; i ++)
+		for(i = 0 ; i < sstm_meta.myLocks.size ; i ++)
 		{
-			if(sstm_meta.myLocks[i] != 0)
-			{
-				// if we own the lock, then announce that this lock waits on the one we want
-				sstm_meta_global.managers.tree[i].waiting = addr;
-			}
+			void* addrLocked = getElement(&sstm_meta.myLocks, i);
+			struct memsection_manager* tmpManager = getManager(addrLocked);
+			tmpManager->waiting = addr;
 		}
 		while(TRYLOCK(&myManager->section_lock))
 		{
@@ -113,13 +107,12 @@ inline void lockMemoryAt(volatile uintptr_t* addr)
 				sched_yield();
 			}
 		}
-		for(i = 0 ; i < NB_MANAGER ; i ++)
+		for(i = 0 ; i < sstm_meta.myLocks.size ; i ++)
 		{
-			if(sstm_meta.myLocks[i] != 0)
-			{
-				// Once we locked the mutex, don't say we wait on it anymore
-				sstm_meta_global.managers.tree[i].waiting = NULL;
-			}
+			// Once we locked the mutex, don't say we wait on it anymore
+			void* addrLocked = getElement(&sstm_meta.myLocks, i);
+			struct memsection_manager* tmpManager = getManager(addrLocked);
+			tmpManager->waiting = NULL;
 		}
 	}
 
@@ -133,8 +126,7 @@ inline void lockMemoryAt(volatile uintptr_t* addr)
 /* 
    Finally register our new lock and say it to the world 
  */
- 	
- 	sstm_meta.myLocks[cell] = 1;	
+	addElement(&sstm_meta.myLocks, addr, &sstm_meta.myLocks.size);
 	sstm_meta_global.managers.tree[cell].owner = sstm_meta.id;
 }
 
@@ -143,8 +135,16 @@ inline void lockMemoryAt(volatile uintptr_t* addr)
  */
 inline int ownAt(volatile uintptr_t *addr)
 {
-	size_t cell = (size_t) addr & MASK;
-	return !sstm_meta.myLocks[cell];
+	int i;
+	for(i = 0 ; i < sstm_meta.myLocks.size ; i++)
+	{
+		void* tmpAddr = getElement(&sstm_meta.myLocks, i);
+		if(tmpAddr == addr)
+		{
+			return 0;
+		}
+	}
+	return 1;
 }
 
 /*
@@ -153,11 +153,13 @@ inline int ownAt(volatile uintptr_t *addr)
 */
 int dependsOnMe(struct memsection_manager* manager)
 {
-	if(manager->waiting != 0)
+	char isWaiting = manager->waiting != 0;
+	char ownWaiting = ownAt(manager->waiting) == 0;
+	if(isWaiting)
 	{
 		PRINTD("|| Manager waiting on cell %i", (size_t)manager->waiting & MASK);
 
-		if(sstm_meta.myLocks[(size_t)manager->waiting&MASK] != 0)
+		if(ownWaiting)
 		{
 			fprintf(stdout, " which we have locked\n");
 		} else {
@@ -166,7 +168,7 @@ int dependsOnMe(struct memsection_manager* manager)
 	} else {
 		PRINTD("|| Depends on nothing\n");
 	}
-	return (manager->waiting!=0) && (sstm_meta.myLocks[(size_t)manager->waiting&MASK]!=0 || dependsOnMe(&sstm_meta_global.managers.tree[(size_t)manager->waiting & MASK]));
+	return isWaiting && (ownWaiting || dependsOnMe(&sstm_meta_global.managers.tree[(size_t)manager->waiting & MASK]));
 }
 
 /* transactionally writes val in addr
@@ -190,18 +192,14 @@ sstm_tx_cleanup()
 	sstm_alloc_on_abort();
 /* Just forget what we locked, and unlock them */
 	int i;
-	for(i = 0 ; i < NB_MANAGER ; i ++)
+	for(i = 0 ; i < sstm_meta.myLocks.size ; i ++)
 	{
-		if(sstm_meta.myLocks[i] != 0)
-		{
-			// If we abort, don't wait on anything more
-			sstm_meta_global.managers.tree[i].waiting = NULL;
-			// forget
-			sstm_meta.myLocks[i] = 0;
-			// unlock
-			UNLOCK(&sstm_meta_global.managers.tree[i].section_lock);
-		}
+		void* addr = getElement(&sstm_meta.myLocks, i); 
+		struct memsection_manager* manager = getManager(addr);
+		managers->waiting = NULL;
+		UNLOCK(&managers->section_lock);
 	}
+	freeArray(&sstm_meta.myLocks);
 	sstm_meta.n_aborts++;
 }
 
@@ -215,19 +213,25 @@ sstm_tx_commit()
 	PRINTD("|| Start commit\n");
 	/* Clean global stuff : update global values, clean owner, unlock mutex, etc...*/
 	int i;
-	for(i = 0 ; i < NB_MANAGER ; i ++)
+	for(i = 0 ; i < sstm_meta.myLocks.size ; i ++)
 	{
-		if(sstm_meta.myLocks[i] != 0)
-		{
-			sstm_meta_global.managers.tree[i].owner = 0;
-			*sstm_meta_global.managers.tree[i].accessedAddress = sstm_meta_global.managers.tree[i].last_modification;
-			UNLOCK(&sstm_meta_global.managers.tree[i].section_lock);
-		}
+		void* addr = getElement(&sstm_meta.myLocks, i);
+		struct memsection_manager* manager = getManager(addr);
+		/*TODO : Check*/
+		manager->owner = 0;
+		manager->accessedAddress = managers->last_modification;
+		UNLOCK(&managers->section_lock);
 	}
 	sstm_alloc_on_commit();
 	sstm_meta.n_commits++;		
 }
 
+
+struct memsection_manager* getManager(uintptr_t *addr)
+{
+	size_t offset = (size_t) addr & MASK;
+	return &sstm_meta_global.managers.tree[offset];
+}
 
 /* prints the TM system stats
  ****** DO NOT TOUCH *********
