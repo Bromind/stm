@@ -36,9 +36,14 @@ extern "C" {
 	{
 		size_t owner;
 		ptlock_t section_lock;
-		uintptr_t last_modification;
 		volatile void* waiting;
-		volatile uintptr_t* accessedAddress;
+		struct DynamicArray updates;
+	};
+
+	struct update 
+	{
+		volatile uintptr_t* address;
+		volatile uintptr_t value;
 	};
 
 	struct managerTree
@@ -52,7 +57,7 @@ extern "C" {
 		size_t id;
 		size_t n_commits;
 		size_t n_aborts;
-		struct DynamicArray* myLocks;
+		struct DynamicArray myLocks;
 	} sstm_metadata_t;
 
 	typedef struct sstm_metadata_global
@@ -129,10 +134,6 @@ extern "C" {
 	/* **************************************************************************************************** */
 	/* externs */
 	/* **************************************************************************************************** */
-	
-	/* Get the manager of the given address
-	*/
-	extern struct memsection_manager* getManager(uintptr_t* addr);
 
 
 	extern void sstm_start();
