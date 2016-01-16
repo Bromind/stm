@@ -52,3 +52,9 @@ void freeArray(struct DynamicArray * array)
 	free(array->array);
 	free(array);
 }
+
+void initArray(struct DynamicArray* array)
+{
+	array->size=0;
+	array->array = NULL;
+}

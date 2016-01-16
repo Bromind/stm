@@ -1,0 +1,2 @@
+#define ALLOCATION_FAILED 1
+#define SUCCESS 0

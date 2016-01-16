@@ -2,7 +2,7 @@ DEBUG=1
 ifeq (${DEBUG},1)
 CFLAGS = -O0 -ggdb
 else
-CFLAGS = -O2
+CFLAGS = -O3 -march=native
 endif
 
 CFLAGS := ${CFLAGS} -Wall -Werror
@@ -25,6 +25,6 @@ $(SRCPATH)/%.o:: $(SRCPATH)/%.c include/sstm.h include/sstm_alloc.h
 
 .PHONY: libsstm.a
 
-libsstm.a:	src/sstm.o src/sstm_alloc.o
-	ar cr libsstm.a src/sstm.o src/sstm_alloc.o
+libsstm.a:	src/sstm.o src/sstm_alloc.o src/array.o
+	ar cr libsstm.a src/sstm.o src/sstm_alloc.o src/array.o
 

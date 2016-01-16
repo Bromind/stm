@@ -10,6 +10,8 @@ sstm_metadata_global_t sstm_meta_global; /* global metadata */
 */
 inline void lockMemoryAt(volatile uintptr_t* addr);
 int dependsOnMe(struct memsection_manager* manager);
+struct update* getUpdateAt(volatile uintptr_t *addr);
+struct memsection_manager* getManager(volatile uintptr_t *addr);
 
 
 /* initializes the TM runtime 
@@ -49,7 +51,7 @@ sstm_stop()
 sstm_thread_start()
 {
 	sstm_meta.id = __atomic_fetch_add(&sstm_meta_global.timestamp, 1, __ATOMIC_SEQ_CST);
-	INIT_ARRAY(&sstm_meta.myLocks);
+	initArray(&sstm_meta.myLocks);
 }
 
 /* terminates thread local data
@@ -74,7 +76,7 @@ sstm_tx_load(volatile uintptr_t* addr)
 {
 	PRINTD("|| Loading addr %p\n", addr);
 	lockMemoryAt(addr);
-	return sstm_meta_global.managers.tree[(size_t)addr&MASK].last_modification;
+	return getUpdateAt(addr)->value;
 }
 
 inline void lockMemoryAt(volatile uintptr_t* addr)
@@ -119,14 +121,12 @@ inline void lockMemoryAt(volatile uintptr_t* addr)
 /*
    Set the last modification to the current value, i.e. the initial value (we only read/write to this area until committing)
 */
-
-	myManager->last_modification = *addr;
-	myManager->accessedAddress = addr;
+	getUpdateAt(addr);
 
 /* 
    Finally register our new lock and say it to the world 
  */
-	addElement(&sstm_meta.myLocks, addr, &sstm_meta.myLocks.size);
+	addElement(&sstm_meta.myLocks, (void*) addr, sstm_meta.myLocks.size);
 	sstm_meta_global.managers.tree[cell].owner = sstm_meta.id;
 }
 
@@ -139,12 +139,60 @@ inline int ownAt(volatile uintptr_t *addr)
 	for(i = 0 ; i < sstm_meta.myLocks.size ; i++)
 	{
 		void* tmpAddr = getElement(&sstm_meta.myLocks, i);
+		/* Check with MASK (i.e. already accessed at an address with the same mask) */
 		if(tmpAddr == addr)
 		{
 			return 0;
 		}
 	}
 	return 1;
+}
+
+/* Returns zero iff the address has already been accessed by the thread in this transaction */
+inline int hasAccessedAt(volatile uintptr_t *addr)
+{
+	struct memsection_manager* manager = getManager(addr);
+	int i;
+	for(i = 0 ; i < manager->updates.size ; i++)
+	{
+		struct update *update = getElement(&manager->updates, i);
+		if(update->address == addr)
+		{
+			return 0;
+		}
+	}
+	return 1;
+}
+
+/* Returns the address of the update structure of the given address*/
+struct update* getUpdateAt(volatile uintptr_t *addr)
+{
+	if(ownAt(addr) != 0)
+	{
+		/* If we don't own the address, return null*/
+		return NULL;
+	}
+	struct memsection_manager* manager = getManager(addr);
+	int i;
+	for(i = 0 ; i < manager->updates.size ; i ++)
+	{
+		struct update *update = getElement(&manager->updates, i);
+		if(update->address == addr)
+		{
+			return update;
+		}
+	}
+
+	struct update *update = malloc(sizeof(struct update));
+	if(update == NULL)
+	{
+		// ERROR
+		return NULL;
+	}
+	update->address = addr;
+	update->value = *addr;
+	return update;
+
 }
 
 /*
@@ -180,7 +228,9 @@ sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
 {
 	lockMemoryAt(addr);
 	/* Update locally, i.e. not at the addr, but in the manager*/
-	sstm_meta_global.managers.tree[(size_t)addr & MASK].last_modification = val;
+	struct update *update = getUpdateAt(addr);
+	update->value = val;
+
 }
 
 /* cleaning up in case of an abort 
@@ -196,8 +246,8 @@ sstm_tx_cleanup()
 	{
 		void* addr = getElement(&sstm_meta.myLocks, i); 
 		struct memsection_manager* manager = getManager(addr);
-		managers->waiting = NULL;
-		UNLOCK(&managers->section_lock);
+		manager->waiting = NULL;
+		UNLOCK(&manager->section_lock);
 	}
 	freeArray(&sstm_meta.myLocks);
 	sstm_meta.n_aborts++;
@@ -217,17 +267,22 @@ sstm_tx_commit()
 	{
 		void* addr = getElement(&sstm_meta.myLocks, i);
 		struct memsection_manager* manager = getManager(addr);
-		/*TODO : Check*/
+		/*Update global*/
+		int j;
+		for(j = 0 ; j < manager->updates.size ; j++)
+		{
+			struct update *up = getElement(&manager->updates,j);
+			*up->address = up->value;
+		}
 		manager->owner = 0;
-		manager->accessedAddress = managers->last_modification;
-		UNLOCK(&managers->section_lock);
+		UNLOCK(&manager->section_lock);
 	}
 	sstm_alloc_on_commit();
 	sstm_meta.n_commits++;		
 }
 
 
-struct memsection_manager* getManager(uintptr_t *addr)
+struct memsection_manager* getManager(volatile uintptr_t *addr)
 {
 	size_t offset = (size_t) addr & MASK;
 	return &sstm_meta_global.managers.tree[offset];
