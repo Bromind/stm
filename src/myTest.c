@@ -18,8 +18,8 @@ int main(void)
 	struct args args1, args2;
 	args1.data1 = a;
 	args1.data2 = b;
-	args2.data1 = a;
-	args2.data2 = b;
+	args2.data1 = b;
+	args2.data2 = a;
 	pthread_t thread1, thread2;
 	pthread_attr_t attr;
 	*a = 5;

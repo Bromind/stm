@@ -12,3 +12,4 @@ void* getElement(struct DynamicArray * array, int index);
 void freeElement(struct DynamicArray * array, int index);
 void freeArray(struct DynamicArray * array);
 void initArray(struct DynamicArray * array);
+void cleanArray(struct DynamicArray * array);

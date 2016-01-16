@@ -76,7 +76,9 @@ sstm_tx_load(volatile uintptr_t* addr)
 {
 	PRINTD("|| Loading addr %p\n", addr);
 	lockMemoryAt(addr);
-	return getUpdateAt(addr)->value;
+	PRINTD("|| addr %p locked\n", addr);
+	struct update * update = getUpdateAt(addr);
+	return update->value;
 }
 
 inline void lockMemoryAt(volatile uintptr_t* addr)
@@ -86,6 +88,7 @@ inline void lockMemoryAt(volatile uintptr_t* addr)
 	if(myManager->owner == sstm_meta.id)
 	{
 		/* if already got the lock*/
+		EPRINTD("|| Try to lock a cell already owned (addr:%p, thread:%i)\n", addr, sstm_meta.id);
 		return;
 	}
 	int lock = TRYLOCK(&myManager->section_lock);
@@ -100,12 +103,13 @@ inline void lockMemoryAt(volatile uintptr_t* addr)
 		}
 		while(TRYLOCK(&myManager->section_lock))
 		{
-			PRINTD("|| check waiting dependencies for cell %i\n", cell);
+			PRINTD("|| check waiting dependencies for cell %i(%p)\n", cell, addr);
 			if(dependsOnMe(myManager))
 			{
 				TX_ABORT(EDEPENDS);	
 			} else {
 				PRINTD("|| doesn't depend on me, but locked, will try in a while\n");
+				usleep(1);
 				sched_yield();
 			}
 		}
@@ -118,16 +122,17 @@ inline void lockMemoryAt(volatile uintptr_t* addr)
 		}
 	}
 
-/*
-   Set the last modification to the current value, i.e. the initial value (we only read/write to this area until committing)
-*/
-	getUpdateAt(addr);
-
 /* 
-   Finally register our new lock and say it to the world 
+   Register our new lock and say it to the world 
  */
 	addElement(&sstm_meta.myLocks, (void*) addr, sstm_meta.myLocks.size);
 	sstm_meta_global.managers.tree[cell].owner = sstm_meta.id;
+
+/*
+   Finally set the last modification to the current value, i.e. the initial value (we only read/write to this area until committing)
+*/
+	getUpdateAt(addr);
+
 }
 
 /*
@@ -164,12 +169,13 @@ inline int hasAccessedAt(volatile uintptr_t *addr)
 	return 1;
 }
 
-/* Returns the address of the update structure of the given address*/
+/* Returns the address of the update structure of the given address */
 struct update* getUpdateAt(volatile uintptr_t *addr)
 {
 	if(ownAt(addr) != 0)
 	{
 		/* If we don't own the address, return null*/
+		EPRINTD("|| Try to get update of %p, but do not own that cell\n",addr);
 		return NULL;
 	}
 	struct memsection_manager* manager = getManager(addr);
@@ -187,6 +193,7 @@ struct update* getUpdateAt(volatile uintptr_t *addr)
 	if(update == NULL)
 	{
 		// ERROR
+		EPRINTD("|| Malloc failed\n");
 		return NULL;
 	}
 	update->address = addr;
@@ -245,11 +252,15 @@ sstm_tx_cleanup()
 	for(i = 0 ; i < sstm_meta.myLocks.size ; i ++)
 	{
 		void* addr = getElement(&sstm_meta.myLocks, i); 
+		size_t cell = (size_t)addr & MASK;
+		PRINTD("|| Release cell %i (%p)\n", cell, addr);
 		struct memsection_manager* manager = getManager(addr);
 		manager->waiting = NULL;
+		manager->owner = 0;
+		cleanArray(&manager->updates);
 		UNLOCK(&manager->section_lock);
 	}
-	freeArray(&sstm_meta.myLocks);
+	cleanArray(&sstm_meta.myLocks); /* <-- This line causes SIGABRT */
 	sstm_meta.n_aborts++;
 }
 
@@ -274,7 +285,10 @@ sstm_tx_commit()
 			struct update *up = getElement(&manager->updates,j);
 			*up->address = up->value;
 		}
+		/* Reset owner & updates */
 		manager->owner = 0;
+		manager->waiting = NULL;
+		cleanArray(&manager->updates);
 		UNLOCK(&manager->section_lock);
 	}
 	sstm_alloc_on_commit();
@@ -302,4 +316,4 @@ sstm_print_stats(double dur_s)
 			sstm_meta_global.n_aborts / dur_s);
 }
 
-#define PRINTD(args...) print_id(sstm_meta.id, args);
+//#define PRINTD(args...) print_id(sstm_meta.id, args);

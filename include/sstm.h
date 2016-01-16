@@ -178,20 +178,23 @@ extern "C" {
 	/* **************************************************************************************************** */
 
 	static inline void
-		print_id(size_t id, const char* format, ... )
-		{
-			va_list args;
-			fprintf( stdout, "[%03zu]: ", id);
-			va_start( args, format );
-			vfprintf( stdout, format, args );
-			va_end( args );
-		}
+	print_id(FILE* stream, size_t id, const char* format, ... )
+	{
+		va_list args;
+		fprintf( stream, "[%03zu]: ", id);
+		va_start( args, format );
+		vfprintf( stream, format, args );
+		va_end( args );
+		fflush(stream);
+	}
 
 
 #if DEBUG == 1
-#define PRINTD(args...) print_id(sstm_meta.id, args);
+#define PRINTD(args...) print_id(stdout, sstm_meta.id, args);
+#define EPRINTD(args...) print_id(stderr, sstm_meta.id, args);
 #else
 #define PRINTD(args...) 
+#define EPRINTD(args...) 
 #endif
 
 #define EDEPENDS 1
