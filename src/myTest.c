@@ -33,8 +33,8 @@ int main(void)
 	TM_START();
 	pthread_create(&thread2, &attr, (void*(*)(void*))thread_fun, &args2);
 	pthread_create(&thread1, &attr, (void*(*)(void*))thread_fun, &args1);
-	pthread_join(thread1, &status);
 	pthread_join(thread2, &status);
+	pthread_join(thread1, &status);
 	TM_STOP();
 	printf("a : %i ; b : %i\n", *a, *b);
 	return 0;

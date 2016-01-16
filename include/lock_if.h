@@ -36,6 +36,11 @@
   COMPILER_BARRIER()
 #endif
 
+#ifndef CAS_U64
+#	define CAS_U64(pointer, old_value, new_value)	\
+	__sync_val_compare_and_swap(pointer, old_value, new_value)
+#endif
+
 #if defined(MUTEX)
 typedef pthread_mutex_t ptlock_t;
 #  define LOCK_LOCAL_DATA                                
@@ -165,7 +170,7 @@ struct ticket_st
 typedef struct ticket_st ptlock_t;
 #  define LOCK_LOCAL_DATA                                
 #  define INIT_LOCK(lock)				ticket_init((volatile ptlock_t*) lock)
-#  define DESTROY_LOCK(lock)			
+#  define DESTROY_LOCK(lock)				ticket_destroy((volatile ptlock_t*) lock)
 #  define LOCK(lock)					ticket_lock((volatile ptlock_t*) lock)
 #  define TRYLOCK(lock)					ticket_trylock((volatile ptlock_t*) lock)
 #  define UNLOCK(lock)					ticket_unlock((volatile ptlock_t*) lock)
@@ -183,6 +188,12 @@ ticket_init(volatile ptlock_t* l)
 #  if defined(__tile__)
   MEM_BARRIER;
 #  endif
+}
+
+static inline int
+ticket_destroy(volatile ptlock_t* lock)
+{
+	return 0;
 }
 
 #  define TICKET_BASE_WAIT 512

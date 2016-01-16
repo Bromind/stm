@@ -1,4 +1,5 @@
 #include "sstm.h"
+#include <errno.h>
 #include <sched.h>
 
 LOCK_LOCAL_DATA;
@@ -109,7 +110,6 @@ inline void lockMemoryAt(volatile uintptr_t* addr)
 				TX_ABORT(EDEPENDS);	
 			} else {
 				PRINTD("|| doesn't depend on me, but locked, will try in a while\n");
-				usleep(1);
 				sched_yield();
 			}
 		}
@@ -208,7 +208,7 @@ struct update* getUpdateAt(volatile uintptr_t *addr)
 */
 int dependsOnMe(struct memsection_manager* manager)
 {
-	char isWaiting = manager->waiting != 0;
+	char isWaiting = manager->waiting != NULL;
 	char ownWaiting = ownAt(manager->waiting) == 0;
 	if(isWaiting)
 	{
@@ -259,8 +259,9 @@ sstm_tx_cleanup()
 		manager->owner = 0;
 		cleanArray(&manager->updates);
 		UNLOCK(&manager->section_lock);
+		PRINTD("|| cell %i (%p) released\n", cell, addr);
 	}
-	cleanArray(&sstm_meta.myLocks); /* <-- This line causes SIGABRT */
+	cleanArray(&sstm_meta.myLocks); 
 	sstm_meta.n_aborts++;
 }
 

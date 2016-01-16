@@ -17,7 +17,7 @@ extern "C" {
 #define DEBUG 1
 
 	/* Choose here which lock to use */
-#define MCS
+#define TICKET
 #include "lock_if.h"
 
 
@@ -104,6 +104,7 @@ extern "C" {
 		{							\
 			sstm_tx_cleanup();				\
 			PRINTD("|| restarting due to %d\n", reason);	\
+			sched_yield();					\
 		}							\
 	}
 

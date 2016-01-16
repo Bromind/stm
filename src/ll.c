@@ -4,6 +4,7 @@
 #include <signal.h>
 #include <malloc.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include "sstm.h"
 #include "random.h"
